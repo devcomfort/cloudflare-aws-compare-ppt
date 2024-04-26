@@ -72,22 +72,51 @@
 	}
 
 	onMount(function () {
+		const { req_rate, cnt, amount_of_time, response_data_size } = serverless;
+		const request_rates = _.times(cnt, (index) => (index + 1) * req_rate);
+
 		serverless_fee_chart = new Chart(serverless_fee_canvas, {
 			type: 'line',
 			data: {
-				labels: _.times(serverless.cnt, () => 100),
 				datasets: [
 					{
-						label: '# of Votes',
-						data: [12, 19, 3, 5, 2, 3],
-						borderWidth: 1
+						label: 'Cloudflare 요금',
+						data: _.map(request_rates, (amount_of_request) =>
+							new CloudflareWorkers().totalFee(amount_of_request, amount_of_time)
+						)
+					},
+					{
+						label: 'AWS Lambda 요금',
+						data: _.map(
+							request_rates,
+							(amount_of_request) =>
+								new AWSLambda().totalFee(amount_of_request, amount_of_time, 128) +
+								getEgressFee((response_data_size / 1_000) * amount_of_request)
+						)
+					},
+					{
+						label: 'AWS 데이터 송신 요금',
+						data: _.map(request_rates, (amount_of_request) =>
+							getEgressFee((response_data_size / 1_000) * amount_of_request)
+						)
 					}
 				]
 			},
 			options: {
 				scales: {
 					y: {
-						beginAtZero: true
+						beginAtZero: true,
+						title: {
+							display: true,
+							text: '청구 요금'
+						}
+					},
+					x: {
+						beginAtZero: true,
+						title: {
+							display: true,
+							text: '요청 수'
+						}
 					}
 				},
 				plugins: {
@@ -165,6 +194,7 @@
 				<input
 					name="serverless-response-data-size"
 					class="px-2 text-black"
+					step="0.1"
 					type="number"
 					bind:value={serverless.response_data_size}
 				/>
