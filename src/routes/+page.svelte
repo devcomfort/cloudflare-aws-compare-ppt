@@ -1,145 +1,72 @@
 <script lang="ts">
-	import { AWSLambda } from '$lib/utils/aws_lambda';
-	import { CloudflareWorkers } from '$lib/utils/cloudflare_workers';
-	import { getEgressFee } from '../lib/utils/aws_egress_fee';
-	import Chart from 'chart.js/auto';
+	import {
+		ServerlessFeeChartController,
+		type ServerlessFeeFactors
+	} from '$lib/controller/serverless_fee';
 	import { onMount } from 'svelte';
 	import * as _ from 'lodash';
+	import { StorageFeeController, type StorageFeeFactors } from '../lib/controller/storage_fee';
 
 	/** 서버리스 가격표 차트 시각화용 */
 	let serverless_fee_canvas: HTMLCanvasElement;
-	let serverless_fee_chart: Chart;
 
-	let serverless = {
-		/**
-		 * 요청 수 계산 단위
-		 *
-		 * 10이라면 10, 20, 30, ... 번 요청했을 때의 요금을 계산합니다.
-		 */
-		req_rate: 10_000_000,
-		/**
-		 * 생성할 샘플 수
-		 *
-		 * `req_rate`가 100이고, `cnt`가 3이라면 `[100, 200, 300]`에 대한 계산이 수행됩니다.
-		 */
-		cnt: 7,
+	let serverless_fee_controller: ServerlessFeeChartController;
+	let serverless_fee_factor: ServerlessFeeFactors = {
+		sampleFactor: {
+			/**
+			 * 요청 수 계산 단위
+			 *
+			 * 10이라면 10, 20, 30, ... 번 요청했을 때의 요금을 계산합니다.
+			 */
+			step: 10_000_000,
+			/**
+			 * 생성할 샘플 수
+			 *
+			 * `req_rate`가 100이고, `cnt`가 3이라면 `[100, 200, 300]`에 대한 계산이 수행됩니다.
+			 */
+			count: 7
+		},
 		/**
 		 * 요청당 소요 시간 (단위: ms)
 		 */
-		amount_of_time: 10,
+		elapsed_time_per_request: 10,
 		/**
 		 * 요청 결과 크기 (단위: MB)
 		 */
-		response_data_size: 1.5
+		response_body_size: 0.05 // 5kB
 	};
 
-	$: {
-		const { req_rate, cnt, amount_of_time, response_data_size } = serverless;
+	let storage_fee_controller: StorageFeeController;
+	let storage_fee_canvas: HTMLCanvasElement;
 
-		const request_rates = _.times(cnt, (index) => (index + 1) * req_rate);
+	let storage_fee_factor: StorageFeeFactors = {
+		sampleFactor: {
+			step: 10,
+			count: 10
+		},
+		amount_of_class_a_operation: 2000,
+		amount_of_class_b_operation: 50000,
+		egress_usage: 20
+	};
 
-		if (serverless_fee_chart) {
-			try {
-				serverless_fee_chart.data.labels = request_rates;
-				serverless_fee_chart.data.datasets = [
-					{
-						label: 'Cloudflare 요금',
-						data: _.map(request_rates, (amount_of_request) =>
-							new CloudflareWorkers().totalFee(amount_of_request, amount_of_time)
-						)
-					},
-					{
-						label: 'AWS Lambda 요금',
-						data: _.map(
-							request_rates,
-							(amount_of_request) =>
-								new AWSLambda().totalFee(amount_of_request, amount_of_time, 128) +
-								getEgressFee((response_data_size / 1_000) * amount_of_request)
-						)
-					},
-					{
-						label: 'AWS 데이터 송신 요금',
-						data: _.map(request_rates, (amount_of_request) =>
-							getEgressFee((response_data_size / 1_000) * amount_of_request)
-						)
-					}
-				];
-				serverless_fee_chart.update();
-			} catch (err) {
-				console.error(err);
-			}
-		}
+	$: if (serverless_fee_controller) serverless_fee_controller.update(serverless_fee_factor);
+	$: if (storage_fee_controller) {
+		storage_fee_controller.update(storage_fee_factor);
 	}
 
 	onMount(function () {
-		const { req_rate, cnt, amount_of_time, response_data_size } = serverless;
-		const request_rates = _.times(cnt, (index) => (index + 1) * req_rate);
+		serverless_fee_controller = new ServerlessFeeChartController(
+			serverless_fee_canvas,
+			serverless_fee_factor
+		);
 
-		serverless_fee_chart = new Chart(serverless_fee_canvas, {
-			type: 'line',
-			data: {
-				datasets: [
-					{
-						label: 'Cloudflare 요금',
-						data: _.map(request_rates, (amount_of_request) =>
-							new CloudflareWorkers().totalFee(amount_of_request, amount_of_time)
-						)
-					},
-					{
-						label: 'AWS Lambda 요금',
-						data: _.map(
-							request_rates,
-							(amount_of_request) =>
-								new AWSLambda().totalFee(amount_of_request, amount_of_time, 128) +
-								getEgressFee((response_data_size / 1_000) * amount_of_request)
-						)
-					},
-					{
-						label: 'AWS 데이터 송신 요금',
-						data: _.map(request_rates, (amount_of_request) =>
-							getEgressFee((response_data_size / 1_000) * amount_of_request)
-						)
-					}
-				]
-			},
-			options: {
-				scales: {
-					y: {
-						beginAtZero: true,
-						title: {
-							display: true,
-							text: '청구 요금'
-						}
-					},
-					x: {
-						beginAtZero: true,
-						title: {
-							display: true,
-							text: '요청 수'
-						}
-					}
-				},
-				plugins: {
-					title: {
-						display: true,
-						text: 'Cloudflare Workers vs AWS Lambda 요금 비교'
-					}
-				}
-			}
-		});
+		storage_fee_controller = new StorageFeeController(storage_fee_canvas, storage_fee_factor);
 	});
 </script>
 
 <section>
 	<section>
-		<h2>
-			Cloudflare vs AWS <br />
-			Comparison
-		</h2>
-	</section>
-
-	<section>
-		<h2>References</h2>
+		<h2 class="r-fit-text">Cloudflare vs AWS 제품군 비교</h2>
 	</section>
 </section>
 
@@ -152,23 +79,29 @@
 		<table class="text-2xl">
 			<thead>
 				<th>TL;DR</th>
-				<th>Cloudflare</th>
-				<th>AWS</th>
+				<th>Cloudflare Workers</th>
+				<th>AWS S3</th>
 			</thead>
 			<tbody>
 				<tr>
 					<td>최대 메모리</td>
 					<td>128MB</td>
-					<td>10,240MB</td>
+					<td>
+						<b>10,240MB</b>
+					</td>
 				</tr>
 				<tr>
 					<td>데이터 송수신 요금</td>
-					<td>없음</td>
+					<td>
+						<b>없음</b>
+					</td>
 					<td>있음</td>
 				</tr>
 				<tr>
 					<td>지연 시간 <br /> (Cold Start)</td>
-					<td>219ms</td>
+					<td>
+						<b>219ms</b>
+					</td>
 					<td>333ms</td>
 				</tr>
 			</tbody>
@@ -178,28 +111,26 @@
 	<section>
 		<h2 class="r-fit-text">Cloduflare Workers vs AWS Lambda 요금 비교</h2>
 
-		<main class="g-8 !flex flex-col">
-			<canvas class="bg-white" bind:this={serverless_fee_canvas}></canvas>
+		<canvas class=" bg-white" bind:this={serverless_fee_canvas}></canvas>
 
-			<div class="g-4 grid w-full grid-cols-4 text-base">
-				<label for="serverless-elapsed-time">요청당 소요 시간 (단위: 밀리 초)</label>
-				<input
-					name="serverless-elapsed-time"
-					class="px-2 text-black"
-					type="number"
-					bind:value={serverless.amount_of_time}
-				/>
+		<div class="g-4 grid w-full grid-cols-4 text-base">
+			<label for="serverless-elapsed-time">요청당 소요 시간 (단위: 밀리 초)</label>
+			<input
+				name="serverless-elapsed-time"
+				class="px-2 text-black"
+				type="number"
+				bind:value={serverless_fee_factor.elapsed_time_per_request}
+			/>
 
-				<label for="serverless-response-data-size">요청 결과 크기 (단위: MB)</label>
-				<input
-					name="serverless-response-data-size"
-					class="px-2 text-black"
-					step="0.1"
-					type="number"
-					bind:value={serverless.response_data_size}
-				/>
-			</div>
-		</main>
+			<label for="serverless-response-data-size">요청 결과 크기 (단위: MB)</label>
+			<input
+				name="serverless-response-data-size"
+				class="px-2 text-black"
+				step="0.1"
+				type="number"
+				bind:value={serverless_fee_factor.response_body_size}
+			/>
+		</div>
 	</section>
 
 	<section>
@@ -239,17 +170,79 @@
 		<h2>Round 2: Storage</h2>
 
 		<h3 class="r-fit-text">Cloudflare R2 vs AWS S3</h3>
+
+		<table class="text-2xl">
+			<thead>
+				<th>TL;DR</th>
+				<th>Cloudflare R2</th>
+				<th>AWS S3</th>
+			</thead>
+			<tbody>
+				<tr>
+					<td>GB당 가격</td>
+					<td>
+						<b>$0.015/GB</b>
+					</td>
+					<td>$0.02/GB</td>
+				</tr>
+				<tr>
+					<td>데이터 송수신 요금</td>
+					<td>
+						<b>없음</b>
+					</td>
+					<td>있음</td>
+				</tr>
+				<tr>
+					<td>AWS S3 API</td>
+					<td>사용 가능</td>
+					<td>사용 가능</td>
+				</tr>
+			</tbody>
+		</table>
+	</section>
+
+	<section>
+		<h2 class="r-fit-text">Cloduflare R2 vs AWS S3 요금 비교</h2>
+
+		<canvas class="bg-white" bind:this={storage_fee_canvas}></canvas>
+
+		<div class="g-4 grid w-full grid-cols-6 text-base">
+			<label for="class-a-operation">클래스 A 연산 수</label>
+			<input
+				type="number"
+				name="class-a-operation"
+				class="px-2 text-black"
+				bind:value={storage_fee_factor.amount_of_class_a_operation}
+			/>
+
+			<label for="class-b-operation">클래스 B 연산 수</label>
+			<input
+				name="class-b-operation"
+				class="px-2 text-black"
+				type="number"
+				bind:value={storage_fee_factor.amount_of_class_b_operation}
+			/>
+
+			<label for="egress_usage" class="text-sm">데이터 송신량 (단위: GB)</label>
+			<input
+				type="number"
+				step="0.1"
+				class="px-2 text-black"
+				name="egress-usage"
+				bind:value={storage_fee_factor.egress_usage}
+			/>
+		</div>
 	</section>
 </section>
 
 <section>
 	<section>
-		<h2>Round 3: Database</h2>
+		<h2 class="r-fit-text">Round 3: Cloudflare Queues vs AWS SQS</h2>
+	</section>
+</section>
 
-		<h3 class="r-fit-text">Cloudflare D1 vs AWS RDS</h3>
-
-		<ul class="r-fit-text">
-			<li>AWS RDS와의 1:1 비교가 불가능하여, 예시를 추가하였습니다</li>
-		</ul>
+<section>
+	<section>
+		<h2>Cloudflare D1 소개</h2>
 	</section>
 </section>
