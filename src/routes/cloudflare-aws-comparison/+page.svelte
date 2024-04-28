@@ -5,8 +5,8 @@
 	} from '$lib/controller/serverless_fee';
 	import { onMount } from 'svelte';
 	import * as _ from 'lodash';
-	import { StorageFeeController, type StorageFeeFactors } from '../lib/controller/storage_fee';
-	import { QueueFeeController, type QueueFeeFactors } from '../lib/controller/queue_fee';
+	import { StorageFeeController, type StorageFeeFactors } from '$lib/controller/storage_fee';
+	import { QueueFeeController, type QueueFeeFactors } from '$lib/controller/queue_fee';
 
 	/** 서버리스 가격표 차트 시각화용 */
 	let serverless_fee_canvas: HTMLCanvasElement;
