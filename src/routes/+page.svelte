@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import * as _ from 'lodash';
 	import { StorageFeeController, type StorageFeeFactors } from '../lib/controller/storage_fee';
+	import { QueueFeeController, type QueueFeeFactors } from '../lib/controller/queue_fee';
 
 	/** 서버리스 가격표 차트 시각화용 */
 	let serverless_fee_canvas: HTMLCanvasElement;
@@ -49,10 +50,21 @@
 		egress_usage: 20
 	};
 
+	let queue_fee_controller: QueueFeeController;
+	let queue_fee_canvas: HTMLCanvasElement;
+
+	let queue_fee_factor: QueueFeeFactors = {
+		sampleFactor: {
+			step: 10_000_000,
+			count: 15
+		},
+		message_per_batch: 10,
+		size_of_message: 127
+	};
+
 	$: if (serverless_fee_controller) serverless_fee_controller.update(serverless_fee_factor);
-	$: if (storage_fee_controller) {
-		storage_fee_controller.update(storage_fee_factor);
-	}
+	$: if (storage_fee_controller) storage_fee_controller.update(storage_fee_factor);
+	$: if (queue_fee_controller) queue_fee_controller.update(queue_fee_factor);
 
 	onMount(function () {
 		serverless_fee_controller = new ServerlessFeeChartController(
@@ -61,6 +73,8 @@
 		);
 
 		storage_fee_controller = new StorageFeeController(storage_fee_canvas, storage_fee_factor);
+
+		queue_fee_controller = new QueueFeeController(queue_fee_canvas, queue_fee_factor);
 	});
 </script>
 
@@ -78,7 +92,7 @@
 
 		<table class="text-2xl">
 			<thead>
-				<th>TL;DR</th>
+				<th></th>
 				<th>Cloudflare Workers</th>
 				<th>AWS S3</th>
 			</thead>
@@ -91,7 +105,7 @@
 					</td>
 				</tr>
 				<tr>
-					<td>데이터 송수신 요금</td>
+					<td>데이터 송신 비용</td>
 					<td>
 						<b>없음</b>
 					</td>
@@ -173,7 +187,7 @@
 
 		<table class="text-2xl">
 			<thead>
-				<th>TL;DR</th>
+				<th></th>
 				<th>Cloudflare R2</th>
 				<th>AWS S3</th>
 			</thead>
@@ -186,7 +200,7 @@
 					<td>$0.02/GB</td>
 				</tr>
 				<tr>
-					<td>데이터 송수신 요금</td>
+					<td>데이터 송신 비용</td>
 					<td>
 						<b>없음</b>
 					</td>
@@ -238,11 +252,110 @@
 <section>
 	<section>
 		<h2 class="r-fit-text">Round 3: Cloudflare Queues vs AWS SQS</h2>
-	</section>
-</section>
 
-<section>
+		<table class="r-fit-text">
+			<thead>
+				<th></th>
+				<th>Cloudflare Queues</th>
+				<th>AWS SQS</th>
+			</thead>
+			<tbody>
+				<tr>
+					<td>요금</td>
+					<td>$0.4/1 million messages</td>
+					<td>$0.4/1 million batches</td>
+				</tr>
+				<tr>
+					<td>요금 책정 방식</td>
+					<td>개별 메시지</td>
+					<td>
+						<strong>개별 배치</strong>
+					</td>
+				</tr>
+				<tr>
+					<td>배치 당 메시지 수 상한</td>
+					<td>
+						<strong>100</strong>
+					</td>
+					<td>10</td>
+				</tr>
+				<tr>
+					<td>배치 크기 상한</td>
+					<td>128kB</td>
+					<td>256kB</td>
+				</tr>
+				<tr>
+					<td>FIFO 보장</td>
+					<td>N/A</td>
+					<td>
+						별도의 요금제를 통해 제공 <br />
+						($0.5/1 million batch)
+					</td>
+				</tr>
+				<tr>
+					<td>무료 제공량</td>
+					<td>1,000,000 messages</td>
+					<td>
+						<strong>1,000,000 batches</strong>
+					</td>
+				</tr>
+				<tr>
+					<td>API 지원</td>
+					<td><strong>REST API</strong> 및 Wrangler</td>
+					<td>AWS API</td>
+				</tr>
+				<tr>
+					<td>개발 단계</td>
+					<td>Open Beta</td>
+					<td>
+						<strong>Generally Available</strong>
+					</td>
+				</tr><tr>
+					<td>데이터 송신 비용</td>
+					<td>
+						<strong>없음</strong>
+					</td>
+					<td>있음</td>
+				</tr>
+			</tbody>
+		</table>
+	</section>
+
 	<section>
-		<h2>Cloudflare D1 소개</h2>
+		<h2 class="r-fit-text">Cloduflare Queues vs AWS SQS 비교</h2>
+
+		<canvas class="bg-white" bind:this={queue_fee_canvas}></canvas>
+
+		<div class="g-4 grid w-full grid-cols-4 text-base">
+			<label for="batch-size">배치 크기</label>
+			<input
+				type="number"
+				name="batch-size"
+				class="px-2 text-black"
+				bind:value={queue_fee_factor.message_per_batch}
+			/>
+
+			<label for="message-size">메시지 크기 (단위: kB)</label>
+			<input
+				name="message-size"
+				class="px-2 text-black"
+				type="number"
+				bind:value={queue_fee_factor.size_of_message}
+			/>
+		</div>
+	</section>
+
+	<section>
+		<h2>References</h2>
+
+		<ul>
+			<li>
+				마이크로 서비스에 Amazon SQS 메시지 큐 활용하기 &mdash; hatemog:
+				<a href="https://note.hatemogi.com/amazon-sqs.html"
+					>https://note.hatemogi.com/amazon-sqs.html</a
+				>
+			</li>
+			<li>Cloudflare Queues 제한사항: https://developers.cloudflare.com/queues/platform/limits/</li>
+		</ul>
 	</section>
 </section>
